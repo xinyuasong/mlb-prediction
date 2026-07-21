@@ -1,0 +1,5 @@
+requests>=2.31
+numpy>=1.26
+matplotlib>=3.8   # optional: calibration plot only
+lightgbm>=4.0     # V3 ML layer (falls back to xgboost, then scikit-learn)
+scikit-learn>=1.4 # V3 fallback backend + utilities

@@ -1,0 +1,29 @@
+# secrets - never commit this
+odds_api_key.txt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# caches, logs, local state
+.api_cache/
+*.log
+*.pkl
+*.out
+
+# personal data ledgers (grow daily, not really repo material)
+odds.csv
+slate_history.csv
+backtest_results/
+
+# fangraphs-derived data (their projections, not mine to redistribute)
+projections.csv
+projections_unmatched.csv
+zips_batters.csv
+zips_paste.txt
+
+# internal working notes (drop these two lines if you want them public)
+AUDIT.md
+V2_NOTES.md
