@@ -31,7 +31,20 @@ TEAM_BALLAST_GAMES = 60.0
 # Starters throw ~55% of innings league-wide (2024-2026 era). The other 45%
 # is priced off "team minus this starter" RA9, NOT whole-team RA9 - whole-team
 # RA9 double-counts the starter we already priced separately (audit bug B4).
+#
+# NOTE: this is now only a FALLBACK. A fixed share treats Skubal and a 4.2-IP
+# opener identically, which under-credits aces (who work deep) and over-credits
+# short starters - and that systematically inflates model edges on underdogs
+# facing elite pitchers. engine.defense_ratio now uses a PER-PITCHER share =
+# (his IP/start) / 9, clamped to [MIN,MAX], and only falls back to this
+# constant when games-started is unknown (TBD/no season data). See
+# features.starter_innings_share.
 STARTER_INNINGS_SHARE = 0.55
+# Dynamic-share clamp. Floor ~ a short-leash starter (3.6 IP); ceiling ~6.5 IP
+# because 7+ IP starts and complete games are too rare to price a full share on
+# and the bullpen still throws the rest even on an ace's good night.
+STARTER_SHARE_MIN = 0.40
+STARTER_SHARE_MAX = 0.72
 
 # ---------------------------------------------------------------------------
 # Probability calibration (fitted from backtest evidence)
@@ -234,6 +247,16 @@ VENUES = {
 # roughly the level where, IF the model were perfectly calibrated, edge
 # would survive a typical -110/-110 vig. Below that it's noise.
 EV_THRESHOLD = 0.035
+
+# Data-completeness gate. When a game has a starter we can't actually price
+# (TBD, or so few IP we fell back to a league-average/projection prior), the
+# defense side of that game is a guess, so a moneyline "edge" can be almost
+# entirely an artifact of the missing starter - it will move materially once
+# the arm is announced. Require a bigger gap before flagging HIGH-EV on those
+# games (empirically ~the ATL +108 / BAL-TBD spot: a 3.5% edge that mostly
+# evaporated on lineup lock). Flags below this on a provisional game are still
+# shown in the table but NOT marked HIGH-EV, and are tagged 'SP?'.
+EV_THRESHOLD_PROVISIONAL_SP = 0.060
 
 ML_MODEL_FILE = "ml_residual_model.pkl"
 ML_FEATURES = ["p_home", "lam_home", "lam_away", "exp_total", "park_factor",

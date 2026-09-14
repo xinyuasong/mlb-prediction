@@ -16,7 +16,8 @@ from datetime import date
 import numpy as np
 
 from mlb_model import config, setup_logging
-from mlb_model.data import MLBDataClient, load_odds_csv, load_projections
+from mlb_model.data import (MLBDataClient, load_odds_csv, load_projections,
+                            match_odds)
 from mlb_model.engine import build_game_context, expected_runs
 from mlb_model.features import LeagueContext, calibrate_prob
 from mlb_model.report import ev_report, market_compare, slate_footer, slate_table
@@ -91,7 +92,8 @@ def main() -> None:
                 "hfa_extras": sim.p_extra_innings,
             })
 
-        odds_row = book.get((g.game_date, g.home_name, g.away_name))
+        odds_row = match_odds(book, g.game_date, g.home_name, g.away_name,
+                              g.game_time_utc)
         if odds_row:
             market_compare(pred, odds_row)
         preds.append(pred)

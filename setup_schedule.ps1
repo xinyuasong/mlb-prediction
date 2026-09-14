@@ -17,6 +17,7 @@ $proj = $PSScriptRoot
 $tasks = @(
     @{ Name = "MLB Model - Morning Slate";  Bat = "run_morning.bat";     Time = "10:00" },
     @{ Name = "MLB Model - Close (day)";    Bat = "run_close.bat";       Time = "12:45" },
+    @{ Name = "MLB Model - Close (early)";  Bat = "run_close.bat";       Time = "18:10" },
     @{ Name = "MLB Model - Close (night)";  Bat = "run_close.bat";       Time = "18:40" },
     @{ Name = "MLB Model - Weekly Eval";    Bat = "run_weekly_eval.bat"; Time = "09:00"; Weekly = $true }
 )

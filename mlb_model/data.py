@@ -35,6 +35,11 @@ class PitcherLine:
     ip: float
     runs: float          # ALL runs allowed - unearned runs are real runs.
     hand: str | None = None  # 'L'/'R' when known
+    gs: int = 0          # games started -> IP/start drives the innings share
+
+    @property
+    def ip_per_start(self) -> float | None:
+        return self.ip / self.gs if self.gs > 0 else None
 
     @property
     def ra9(self) -> float | None:
@@ -259,7 +264,8 @@ class MLBDataClient:
             name = split.get("player", {}).get("fullName", str(pid))
             return PitcherLine(pitcher_id=pid, name=name,
                                ip=parse_ip(st["inningsPitched"]),
-                               runs=float(st.get("runs", 0)))
+                               runs=float(st.get("runs", 0)),
+                               gs=int(st.get("gamesStarted", 0) or 0))
         except (TypeError, KeyError, IndexError):
             log.warning("No pitching data for pitcher %s (as_of=%s)", pid, as_of)
             return None
@@ -550,12 +556,16 @@ def fetch_live_odds(api_key: str | None = None,
     # load existing ledger
     csv_path = Path(csv_path)
     ledger: dict[tuple, dict] = {}
-    fields = ["date", "home_team", "away_team", "home_ml", "away_ml",
-              "home_ml_open", "away_ml_open", "home_ml_close",
+    # start_utc is part of the key: doubleheaders put two games between the
+    # same teams on the same date, and without it game 2 overwrote game 1
+    # (found 2026-07-22 when every big "edge" was a doubleheader artifact).
+    fields = ["date", "home_team", "away_team", "start_utc", "home_ml",
+              "away_ml", "home_ml_open", "away_ml_open", "home_ml_close",
               "away_ml_close", "last_updated"]
     if csv_path.exists():
         for row in read_csv_rows(csv_path)[0]:
-            ledger[(row["date"], row["home_team"], row["away_team"])] = row
+            ledger[(row["date"], row["home_team"], row["away_team"],
+                    row.get("start_utc", ""))] = row
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     updated = 0
@@ -588,9 +598,13 @@ def fetch_live_odds(api_key: str | None = None,
         s = mh + ma                       # remove consensus vig
         ml_h, ml_a = to_american(mh / s), to_american(ma / s)
 
-        key = (gdate, home, away)
-        row = ledger.get(key, {k: "" for k in fields})
+        start_utc = ct.isoformat(timespec="seconds")
+        key = (gdate, home, away, start_utc)
+        # migrate any pre-fix row (no start_utc) for this matchup
+        legacy = ledger.pop((gdate, home, away, ""), None)
+        row = ledger.get(key, legacy or {k: "" for k in fields})
         row.update({"date": gdate, "home_team": home, "away_team": away,
+                    "start_utc": start_utc,
                     "home_ml": ml_h, "away_ml": ml_a, "last_updated": now})
         if not row.get("home_ml_open"):
             row["home_ml_open"], row["away_ml_open"] = ml_h, ml_a
@@ -608,24 +622,51 @@ def fetch_live_odds(api_key: str | None = None,
     return updated
 
 
-def load_odds_csv(path: str | Path) -> dict[tuple[str, str, str], dict]:
-    """Odds CSV keyed by (date, home_team, away_team).
+def load_odds_csv(path: str | Path) -> dict[tuple[str, str, str], list[dict]]:
+    """Odds CSV -> {(date, home, away): [rows]}.
 
-    Required: date,home_team,away_team,home_ml,away_ml   (American odds,
-    the line available when you would bet).
-    Optional: home_ml_close,away_ml_close                 (for CLV).
-    Team names must match MLB API names ('New York Yankees')."""
-    book: dict[tuple[str, str, str], dict] = {}
+    A LIST per matchup because doubleheaders legitimately produce two games
+    between the same teams on one date; use match_odds() to pick the right
+    one by start time. Required columns: date,home_team,away_team,home_ml,
+    away_ml. Optional: start_utc (doubleheaders), *_close (CLV). Team names
+    must match MLB API names ('New York Yankees')."""
+    book: dict[tuple[str, str, str], list[dict]] = {}
     path = Path(path)
     if not path.exists():
         log.error("Odds file %s not found", path)
         return book
     for r in read_csv_rows(path)[0]:
         try:
-            book[(r["date"].strip(), r["home_team"].strip(),
-                  r["away_team"].strip())] = r
+            book.setdefault((r["date"].strip(), r["home_team"].strip(),
+                             r["away_team"].strip()), []).append(r)
         except (KeyError, AttributeError) as e:
             log.error("Odds CSV missing column: %s", e)
             return {}
-    log.info("Loaded odds for %d games from %s", len(book), path)
+    log.info("Loaded odds for %d games from %s",
+             sum(len(v) for v in book.values()), path)
     return book
+
+
+def match_odds(book: dict, date_str: str, home: str, away: str,
+               game_time_utc: str = "") -> dict | None:
+    """Pick the odds row for one specific game. Single row: trivial.
+    Doubleheader (two rows): nearest start_utc to the game's first pitch,
+    so game 1 and game 2 each get their own market."""
+    rows = book.get((date_str, home, away)) or []
+    if not rows:
+        return None
+    if len(rows) == 1 or not game_time_utc:
+        return rows[0]
+    try:
+        gt = datetime.fromisoformat(game_time_utc.replace("Z", "+00:00"))
+    except ValueError:
+        return rows[0]
+
+    def dist(r):
+        try:
+            return abs((datetime.fromisoformat(r.get("start_utc", ""))
+                        - gt).total_seconds())
+        except ValueError:
+            return float("inf")
+    best = min(rows, key=dist)
+    return best if dist(best) != float("inf") else rows[0]

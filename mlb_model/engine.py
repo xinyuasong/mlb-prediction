@@ -21,7 +21,8 @@ from . import config
 from .data import (BatterSplits, BullpenUsage, GameInfo, PitcherLine, Weather)
 from .features import (LeagueContext, bullpen_fatigue_multiplier,
                        game_park_factor, lineup_off_multiplier,
-                       umpire_run_multiplier, weather_run_multiplier)
+                       starter_innings_share, umpire_run_multiplier,
+                       weather_run_multiplier)
 
 log = logging.getLogger("mlb_model.engine")
 
@@ -87,9 +88,11 @@ def expected_runs(ctx: LeagueContext, game: GameInfo,
                       fat_mult: float) -> tuple[float, str]:
         sp_ra9, note = ctx.starter_ra9_regressed(starter, team_id)
         staff_ra9 = ctx.rest_of_staff_ra9(team_id, starter, fat_mult)
-        blended = (config.STARTER_INNINGS_SHARE * sp_ra9
-                   + (1 - config.STARTER_INNINGS_SHARE) * staff_ra9)
-        return blended / ctx.league_ra9, note
+        # Per-pitcher innings share: an ace who works deep gets more of the
+        # blend (and less bullpen dilution) than a short-leash starter.
+        share = starter_innings_share(starter)
+        blended = share * sp_ra9 + (1 - share) * staff_ra9
+        return blended / ctx.league_ra9, f"{note} · {share:.0%}IP"
 
     # home_sp defends AGAINST the away offense and vice versa.
     away_faces, h_note = defense_ratio(gc.home_sp, game.home_id, h_fat_mult)

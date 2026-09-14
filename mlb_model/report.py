@@ -63,13 +63,24 @@ def market_compare(pred: GamePrediction, odds_row: dict) -> dict | None:
     ev_a = (1 - p_model) * american_payout(ml_a) - p_model
     side, edge, ev, ml = (("home", edge_h, ev_h, ml_h)
                           if edge_h >= edge_a else ("away", edge_a, ev_a, ml_a))
+
+    # Data-completeness gate: if EITHER starter is prior-only (TBD / no-low
+    # season data), the defense side of this game is a guess and the edge is
+    # provisional - it can be almost entirely a missing-starter artifact and
+    # will move when the arm posts. Hold it to a higher bar before we call it
+    # HIGH-EV, so the card doesn't fire on numbers that aren't real yet.
+    sp_provisional = ("no/low" in pred.home_starter_note
+                      or "no/low" in pred.away_starter_note)
+    threshold = (config.EV_THRESHOLD_PROVISIONAL_SP if sp_provisional
+                 else config.EV_THRESHOLD)
     result = {
         "home_ml": ml_h, "away_ml": ml_a,
         "market_p_home": mkt_h,
         "edge_home": edge_h, "edge_away": edge_a,
         "ev_home": ev_h, "ev_away": ev_a,
         "best_side": side, "best_edge": edge, "best_ev": ev, "best_ml": ml,
-        "high_ev": edge >= config.EV_THRESHOLD and ev > 0,
+        "sp_provisional": sp_provisional,
+        "high_ev": edge >= threshold and ev > 0,
     }
     pred.market = result
     return result
@@ -82,6 +93,19 @@ def team_abbr(team_id: int, fallback_name: str = "") -> str:
 
 def _surname(full_name: str) -> str:
     return full_name.split()[-1] if full_name and full_name != "TBD" else "TBD"
+
+
+def fatigue_pct(fatigue_idx: float) -> float:
+    """Excess-relief-IP fatigue index -> the RA9 inflation % it produces,
+    using the exact same cap/rate as features.bullpen_fatigue_multiplier so
+    the number shown in the table equals the number actually applied to runs."""
+    return min(fatigue_idx * config.FATIGUE_RA9_PCT_PER_EXTRA_IP,
+               config.FATIGUE_RA9_PCT_CAP)
+
+
+# A pen tax below this (~+1% RA9) is not worth surfacing; above it we show the
+# actual magnitude for EACH side so the away bullpen is never invisible.
+FATIGUE_SHOW_IDX = 0.5
 
 
 def matchup_label(p: GamePrediction, width: int = 30) -> str:
@@ -99,7 +123,8 @@ def status_columns(p: GamePrediction) -> dict[str, str]:
     '--' always means 'nothing notable', never 'error'."""
     wx = f"{(p.weather_mult - 1) * 100:+3.0f}%" if p.weather_mult != 1.0 else "  --"
     pen = {(False, False): " --", (True, False): "H ", (False, True): " A",
-           (True, True): "HA"}[(p.fatigue_home > 1, p.fatigue_away > 1)]
+           (True, True): "HA"}[(p.fatigue_home > FATIGUE_SHOW_IDX,
+                                p.fatigue_away > FATIGUE_SHOW_IDX)]
     lu = "Y " if p.game.home_lineup or p.game.away_lineup else "--"
     sp_h = "no/low" in p.home_starter_note
     sp_a = "no/low" in p.away_starter_note
@@ -171,10 +196,11 @@ def ev_report(preds: list[GamePrediction]) -> str:
         p_side = p_model if m["best_side"] == "home" else 1 - p_model
         p_mkt = (m["market_p_home"] if m["best_side"] == "home"
                  else 1 - m["market_p_home"])
+        prov = "  ⚠ SP TBD" if m.get("sp_provisional") else ""
         label = f"{team_abbr(side_id, side_nm)}  ({matchup_label(p, 20)})"
         lines.append(f"  {label:<26} {m['best_ml']:>+6.0f}  {p_side:>6.1%}  "
                      f"{p_mkt:>6.1%}  {m['best_edge']:>+6.1%}  "
-                     f"{m['best_ev']:>+8.3f}")
+                     f"{m['best_ev']:>+8.3f}{prov}")
     lines += ["",
               "  CAVEAT: an 'edge' is model-vs-market disagreement, not free "
               "money. It is only",

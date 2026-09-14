@@ -251,6 +251,25 @@ def lineup_off_multiplier(lineup: dict[int, BatterSplits],
 
 
 # ===========================================================================
+# Dynamic starter innings share
+# ===========================================================================
+def starter_innings_share(sp: PitcherLine | None) -> float:
+    """Fraction of the game THIS starter is expected to pitch = his innings
+    per start / 9, clamped to [MIN, MAX].
+
+    Replaces a fixed league share. A fixed 0.55 credits Skubal (>6 IP/start)
+    the same as a 4-inning opener, which dilutes an ace's run prevention with
+    45% bullpen every time and systematically inflates the model's edge on
+    underdogs facing elite starters. When games-started is unknown (TBD or no
+    season data) we fall back to the league constant."""
+    ips = sp.ip_per_start if sp is not None else None
+    if ips is None or ips <= 0:
+        return config.STARTER_INNINGS_SHARE
+    return min(max(ips / 9.0, config.STARTER_SHARE_MIN),
+               config.STARTER_SHARE_MAX)
+
+
+# ===========================================================================
 # V2: bullpen fatigue index
 # ===========================================================================
 def bullpen_fatigue_multiplier(u: BullpenUsage | None) -> tuple[float, float]:

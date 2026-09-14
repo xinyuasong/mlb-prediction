@@ -227,10 +227,15 @@ class ResidualModel:
 
     # -------------------------------------------------------- persistence
     def save(self, path: str | Path = config.ML_MODEL_FILE):
+        # report saved as plain text, not as the dataclass: pickling a class
+        # defined in this module breaks unpickling when training ran via
+        # `python -m` (the class pickles under __main__ and other entry
+        # points can't resolve it - bit us on 2026-07-21).
         with open(path, "wb") as f:
             pickle.dump({"backend": self.backend, "model": self.model,
                          "shipped": self.shipped, "features": self.features,
-                         "report": self.report}, f)
+                         "report_text": self.report.summary() if self.report
+                         else ""}, f)
         log.info("Saved ML model (%s, shipped=%s) to %s",
                  self.backend, self.shipped, path)
 
@@ -250,7 +255,8 @@ class ResidualModel:
                             d["backend"], m.backend)
                 return None
             m.model, m.shipped = d["model"], d["shipped"]
-            m.features, m.report = d["features"], d.get("report")
+            m.features = d["features"]
+            m.report = None  # summary text lives in d["report_text"]
             return m
         except Exception as e:  # noqa: BLE001
             log.error("Failed to load ML model: %s", e)

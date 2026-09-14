@@ -27,7 +27,8 @@ from pathlib import Path
 import numpy as np
 
 from mlb_model import config, setup_logging
-from mlb_model.data import MLBDataClient, load_odds_csv, load_projections
+from mlb_model.data import (MLBDataClient, load_odds_csv, load_projections,
+                            match_odds)
 from mlb_model.engine import build_game_context, expected_runs
 from mlb_model.features import LeagueContext, calibrate_prob
 from mlb_model.report import american_implied, devig_proportional, market_compare
@@ -90,6 +91,7 @@ def run_backtest(start: date, end: date, season: int, total_line: float,
             rows.append({
                 "date": d.isoformat(),
                 "home": g.home_name, "away": g.away_name,
+                "start_utc": g.game_time_utc,  # doubleheader-safe odds join
                 # structural outputs = ML feature columns (config.ML_FEATURES)
                 # p_home is post-calibration: future backtests measure the
                 # pipeline as it actually predicts, and a refit of
@@ -104,6 +106,12 @@ def run_backtest(start: date, end: date, season: int, total_line: float,
                 "fatigue_home": round(pred.fatigue_home, 2),
                 "fatigue_away": round(pred.fatigue_away, 2),
                 "hfa_extras": round(sim.p_extra_innings, 4),
+                # opposing-starter quality, for pitcher-tier calibration:
+                # regressed, park-neutral RA9 of each game's starter.
+                "home_sp_ra9": round(
+                    ctx.starter_ra9_regressed(gc.home_sp, g.home_id)[0], 3),
+                "away_sp_ra9": round(
+                    ctx.starter_ra9_regressed(gc.away_sp, g.away_id)[0], 3),
                 "p_over": sim.p_over(total_line),
                 # outcomes
                 "home_won": int(g.home_score > g.away_score),
@@ -150,6 +158,97 @@ def calibration_table(p, y, edges=None):
     return out
 
 
+def pitcher_tier_calibration(rows: list[dict],
+                             prob_col: str = "p_home") -> list[dict]:
+    """Are we calibrated by the QUALITY of the starter a team is facing?
+
+    Each game yields two side-records: (home team facing the AWAY starter) and
+    (away team facing the HOME starter). Buckets by that opposing starter's
+    regressed RA9 and compares mean predicted win% to realized. If the model
+    overrates underdogs against aces, the 'elite' tier shows realized < predicted
+    (negative gap) beyond its noise band - the exact KC/Skubal worry, measured
+    across the whole season instead of one game. Needs the *_sp_ra9 columns."""
+    recs: list[tuple[float, float, int]] = []
+    for r in rows:
+        h, a = r.get("home_sp_ra9"), r.get("away_sp_ra9")
+        if h in (None, "") or a in (None, ""):
+            continue
+        try:
+            h, a = float(h), float(a)
+            p, y = float(r[prob_col]), int(r["home_won"])
+        except (ValueError, TypeError, KeyError):
+            continue
+        recs.append((a, p, y))            # home team faces the away starter
+        recs.append((h, 1.0 - p, 1 - y))  # away team faces the home starter
+    if not recs:
+        return []
+    tiers = [("elite  (RA9<3.20)", -1e9, 3.20),
+             ("above  (3.20-3.80)", 3.20, 3.80),
+             ("average(3.80-4.40)", 3.80, 4.40),
+             ("below  (RA9>=4.40)", 4.40, 1e9)]
+    out = []
+    for name, lo, hi in tiers:
+        sub = [(p, y) for (opp, p, y) in recs if lo <= opp < hi]
+        if not sub:
+            continue
+        p_arr = np.array([p for p, _ in sub], float)
+        y_arr = np.array([y for _, y in sub], float)
+        n = len(sub)
+        pred, real = float(p_arr.mean()), float(y_arr.mean())
+        se = math.sqrt(max(real * (1 - real), 0.02) / n)
+        out.append({"tier": name, "n": n, "predicted_win": pred,
+                    "realized_win": real, "gap": real - pred, "noise_se": se})
+    return out
+
+
+def _group_cal(pred: np.ndarray, real: np.ndarray, label: str) -> dict:
+    """One calibration record for an arbitrary subgroup."""
+    n = len(pred)
+    pm, rm = float(pred.mean()), float(real.mean())
+    se = math.sqrt(max(rm * (1 - rm), 0.02) / n) if n else 0.0
+    return {"group": label, "n": n, "predicted": pm, "realized": rm,
+            "gap": rm - pm, "noise_se": se}
+
+
+def subgroup_calibration(rows: list[dict], prob_col: str = "p_home") -> dict:
+    """Auto-detect calibration bias by subgroup. Any group whose realized rate
+    sits >2 SE from predicted is a systematic bias, not noise. Uses only columns
+    always present in a backtest row, so it never crashes an older CSV.
+
+    'model_side' catches favorite-longshot handling; 'bullpen' checks whether a
+    taxed pen is priced right; extend with new keys as you add features."""
+    p = np.array([float(r[prob_col]) for r in rows], float)
+    y = np.array([int(r["home_won"]) for r in rows], float)
+    out: dict[str, list[dict]] = {}
+
+    fav = p >= 0.5
+    ms = []
+    if fav.any():
+        ms.append(_group_cal(p[fav], y[fav], "model favorite (p>=50%)"))
+    if (~fav).any():
+        ms.append(_group_cal(p[~fav], y[~fav], "model dog (p<50%)"))
+    big = p < 0.38
+    if big.any():
+        ms.append(_group_cal(p[big], y[big], "home big dog (p<38%)"))
+    out["model_side"] = ms
+
+    # Does a TAXED bullpen (either side) change home-win calibration? fatigue_*
+    # is the excess-IP index; >0.5 ~ the +1% RA9 display threshold.
+    try:
+        fh = np.array([float(r.get("fatigue_home", 0) or 0) for r in rows])
+        fa = np.array([float(r.get("fatigue_away", 0) or 0) for r in rows])
+        taxed = (fh > 0.5) | (fa > 0.5)
+        pen = []
+        if taxed.any():
+            pen.append(_group_cal(p[taxed], y[taxed], "a pen taxed"))
+        if (~taxed).any():
+            pen.append(_group_cal(p[~taxed], y[~taxed], "no pen taxed"))
+        out["bullpen"] = pen
+    except (ValueError, TypeError):
+        pass
+    return out
+
+
 def evaluate(rows: list[dict], outdir: Path, prob_col: str = "p_home") -> dict:
     p = np.array([r[prob_col] for r in rows], float)
     y = np.array([r["home_won"] for r in rows])
@@ -168,6 +267,8 @@ def evaluate(rows: list[dict], outdir: Path, prob_col: str = "p_home") -> dict:
         "totals_mae": float(np.abs(xt - at).mean()),
         "totals_bias": float((xt - at).mean()),
         "calibration": calibration_table(p, y),
+        "pitcher_tier": pitcher_tier_calibration(rows, prob_col),
+        "subgroups": subgroup_calibration(rows, prob_col),
     }
     try:
         import matplotlib
@@ -212,19 +313,27 @@ def market_eval(rows: list[dict], odds_csv: Path,
     matched = 0
     bets = []          # every HIGH EV flag: (won, ml, clv or None)
     for r in rows:
-        o = book.get((r["date"], r["home"], r["away"]))
+        o = match_odds(book, r["date"], r["home"], r["away"],
+                       r.get("start_utc", ""))
         if not o:
             continue
         matched += 1
+        # Bet-time = the *_open columns when present. The ledger's home_ml
+        # is overwritten by every later snapshot (including the close), so
+        # using it as bet-time would make bet-time == close and pin CLV to
+        # zero by construction. *_open is stamped at first sight (the 10:00
+        # run) and never touched again - that's the price you could bet.
+        bt_h = o.get("home_ml_open") or o["home_ml"]
+        bt_a = o.get("away_ml_open") or o["away_ml"]
         try:
-            mh, ma = devig_proportional(o["home_ml"], o["away_ml"])
+            mh, ma = devig_proportional(bt_h, bt_a)
         except (ValueError, TypeError):
             continue
         p = float(r[prob_col])
-        for side, p_side, p_mkt, ml_key in (("home", p, mh, "home_ml"),
-                                            ("away", 1 - p, ma, "away_ml")):
+        for side, p_side, p_mkt, ml_bet in (("home", p, mh, bt_h),
+                                            ("away", 1 - p, ma, bt_a)):
             edge = p_side - p_mkt
-            ev = p_side * payout(o[ml_key]) - (1 - p_side)
+            ev = p_side * payout(ml_bet) - (1 - p_side)
             if edge >= config.EV_THRESHOLD and ev > 0:
                 won = (r["home_won"] == 1) == (side == "home")
                 clv = None
@@ -236,7 +345,7 @@ def market_eval(rows: list[dict], odds_csv: Path,
                     clv = p_close - p_bet   # + = close moved toward us
                 bets.append({"date": r["date"], "side": side,
                              "matchup": f"{r['away']} @ {r['home']}",
-                             "edge": edge, "ml": float(o[ml_key]),
+                             "edge": edge, "ml": float(ml_bet),
                              "won": won, "clv": clv})
     if matched == 0:
         log.warning("No odds rows matched backtest games - check team names "
@@ -359,6 +468,29 @@ def main() -> None:
         flag = "" if abs(gap) < 2 * c["noise_se"] else "  <-- outside noise"
         print(f"  {c['bin']:>10s} {c['n']:>5d} {c['predicted']:>6.1%} "
               f"{c['realized']:>6.1%}{flag}")
+
+    if res.get("pitcher_tier"):
+        print("\nCalibration by OPPOSING-starter tier "
+              "(predicted vs realized win% for the team facing that arm):")
+        print(f"  {'tier':<20s} {'n':>5s} {'pred':>6s} {'real':>6s} {'gap':>7s}")
+        for t in res["pitcher_tier"]:
+            flag = ("  <-- outside noise"
+                    if abs(t["gap"]) > 2 * t["noise_se"] else "")
+            print(f"  {t['tier']:<20s} {t['n']:>5d} {t['predicted_win']:>6.1%} "
+                  f"{t['realized_win']:>6.1%} {t['gap']:>+7.1%}{flag}")
+        print("  (elite tier with realized < predicted = we overrate teams "
+              "facing aces - the KC/Skubal bias.)")
+
+    for name, groups in (res.get("subgroups") or {}).items():
+        if not groups:
+            continue
+        print(f"\nCalibration by {name} (predicted vs realized home-win%):")
+        for gdr in groups:
+            flag = ("  <-- outside noise"
+                    if abs(gdr["gap"]) > 2 * gdr["noise_se"] else "")
+            print(f"  {gdr['group']:<24s} {gdr['n']:>5d} "
+                  f"{gdr['predicted']:>6.1%} {gdr['realized']:>6.1%} "
+                  f"{gdr['gap']:>+7.1%}{flag}")
     if "market_eval" in res:
         print("\nMarket evaluation:")
         print(json.dumps(res["market_eval"], indent=2))

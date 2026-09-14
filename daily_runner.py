@@ -20,10 +20,11 @@ import requests
 
 from mlb_model import config, setup_logging
 from mlb_model.data import (MLBDataClient, fetch_live_odds, load_odds_csv,
-                            load_projections)
+                            load_projections, match_odds)
 from mlb_model.engine import build_game_context, expected_runs
 from mlb_model.features import LeagueContext, calibrate_prob
-from mlb_model.report import fair_moneyline, market_compare, team_abbr
+from mlb_model.report import (FATIGUE_SHOW_IDX, fair_moneyline, fatigue_pct,
+                             market_compare, team_abbr)
 from mlb_model.simulate import simulate_game
 
 log = logging.getLogger("mlb_model.daily_runner")
@@ -78,7 +79,8 @@ def run_slate(run_date: date, total_line: float = 8.5,
                     "fatigue_away": pred.fatigue_away,
                     "hfa_extras": sim.p_extra_innings,
                 })
-            row = book.get((g.game_date, g.home_name, g.away_name))
+            row = match_odds(book, g.game_date, g.home_name, g.away_name,
+                             g.game_time_utc)
             if row:
                 market_compare(pred, row)
             preds.append(pred)
@@ -146,6 +148,8 @@ def markdown_summary(preds: list, run_date: date, total_line: float) -> str:
             m = p.market
             side = (p.game.home_name if m["best_side"] == "home"
                     else p.game.away_name)
+            if m.get("sp_provisional"):
+                side += " ⚠SP?"
             pm = p.p_home_ml if p.p_home_ml is not None else p.p_home
             p_side = pm if m["best_side"] == "home" else 1 - pm
             p_mkt = (m["market_p_home"] if m["best_side"] == "home"
@@ -179,10 +183,15 @@ def markdown_summary(preds: list, run_date: date, total_line: float) -> str:
             notes.append(f"wx {(p.weather_mult - 1) * 100:+.0f}%")
         if p.umpire_mult != 1.0:
             notes.append(f"ump {(p.umpire_mult - 1) * 100:+.0f}%")
-        if p.fatigue_home > 1:
-            notes.append("pen-fat H")
-        if p.fatigue_away > 1:
-            notes.append("pen-fat A")
+        # Show BOTH bullpens' tax with magnitude (home and away), so an away
+        # pen tax is never invisible - it inflates the HOME team's runs and is
+        # a real part of the number.
+        if p.fatigue_home > FATIGUE_SHOW_IDX:
+            notes.append(f"pen {team_abbr(g.home_id, g.home_name)} "
+                         f"+{fatigue_pct(p.fatigue_home):.0%}")
+        if p.fatigue_away > FATIGUE_SHOW_IDX:
+            notes.append(f"pen {team_abbr(g.away_id, g.away_name)} "
+                         f"+{fatigue_pct(p.fatigue_away):.0%}")
         if "no/low" in p.home_starter_note or "no/low" in p.away_starter_note:
             notes.append("SP?")
         if not g.home_lineup:
