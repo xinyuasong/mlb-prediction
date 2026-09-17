@@ -1,4 +1,4 @@
-"""Automated daily pipeline: odds refresh -> model -> markdown -> webhook.
+﻿"""Automated daily pipeline: odds refresh -> model -> markdown -> webhook.
 
     python daily_runner.py                       # full morning run
     python daily_runner.py --close               # snapshot closing lines (CLV)
@@ -139,7 +139,7 @@ def markdown_summary(preds: list, run_date: date, total_line: float) -> str:
 
     flagged = [p for p in preds if p.market and p.market["high_ev"]]
     if flagged:
-        lines.append(f"🎯 **HIGH-EV candidates (edge ≥ "
+        lines.append(f"**HIGH-EV candidates (edge >= "
                      f"{config.EV_THRESHOLD:.1%})**")
         lines.append("")
         lines.append("| Side | ML | Model | Market | Edge | EV/unit |")
@@ -149,7 +149,7 @@ def markdown_summary(preds: list, run_date: date, total_line: float) -> str:
             side = (p.game.home_name if m["best_side"] == "home"
                     else p.game.away_name)
             if m.get("sp_provisional"):
-                side += " ⚠SP?"
+                side += " SP?"
             pm = p.p_home_ml if p.p_home_ml is not None else p.p_home
             p_side = pm if m["best_side"] == "home" else 1 - pm
             p_mkt = (m["market_p_home"] if m["best_side"] == "home"

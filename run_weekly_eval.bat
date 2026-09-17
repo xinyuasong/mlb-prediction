@@ -8,6 +8,10 @@ rem future --end below simply means "season to date".
 rem Mostly served from .api_cache: a few minutes, not 26.
 rem Note: overwrites backtest_results\ - copy that folder first if you want
 rem to preserve a particular week's snapshot.
+set PYTHONIOENCODING=utf-8
 cd /d "%~dp0"
+timeout /t 60 /nobreak >nul
 echo ================ %date% %time% WEEKLY EVAL ================ >> scheduler.log
 python backtest.py --start 2026-03-25 --end 2026-12-31 --odds odds.csv >> scheduler.log 2>&1
+
+

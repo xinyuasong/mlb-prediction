@@ -1,4 +1,4 @@
-"""Output tables + market comparison.
+﻿"""Output tables + market comparison.
 
 De-vig is proportional (divide both implied probs by their sum) - simple and
 fine for MLB moneylines, which are never extreme. Edge = model prob minus
@@ -196,7 +196,7 @@ def ev_report(preds: list[GamePrediction]) -> str:
         p_side = p_model if m["best_side"] == "home" else 1 - p_model
         p_mkt = (m["market_p_home"] if m["best_side"] == "home"
                  else 1 - m["market_p_home"])
-        prov = "  ⚠ SP TBD" if m.get("sp_provisional") else ""
+        prov = "  SP TBD" if m.get("sp_provisional") else ""
         label = f"{team_abbr(side_id, side_nm)}  ({matchup_label(p, 20)})"
         lines.append(f"  {label:<26} {m['best_ml']:>+6.0f}  {p_side:>6.1%}  "
                      f"{p_mkt:>6.1%}  {m['best_edge']:>+6.1%}  "
