@@ -577,3 +577,7 @@ run_ts,date,away,home,p_home,exp_total,p_over,total_line,home_ml,away_ml,market_
 2026-09-27T14:01:31+00:00,2026-09-27,Colorado Rockies,Chicago White Sox,0.61235,10.09,0.5734,8.5,-156.0,156.0,0.6094,away,0.0279,0
 2026-09-27T14:01:31+00:00,2026-09-27,Atlanta Braves,Miami Marlins,0.54401,9.28,0.5206,8.5,-110.0,110.0,0.5238,home,0.0079,0
 2026-09-27T14:01:31+00:00,2026-09-27,St. Louis Cardinals,Milwaukee Brewers,0.7062,7.75,0.3855,8.5,-212.0,212.0,0.6795,away,0.0268,0
+2026-09-30T17:02:12+00:00,2026-09-30,Philadelphia Phillies,Atlanta Braves,0.44665,7.9,0.3977,8.5,107.0,-107.0,0.4831,away,0.0215,0
+2026-09-30T17:02:12+00:00,2026-09-30,Chicago White Sox,Houston Astros,0.4768,9.46,0.5312,8.5,-137.0,137.0,0.5781,away,0.0948,1
+2026-09-30T17:02:12+00:00,2026-09-30,Boston Red Sox,New York Yankees,0.57376,6.86,0.298,8.5,-124.0,124.0,0.5536,away,0.0003,0
+2026-09-30T17:02:12+00:00,2026-09-30,Chicago Cubs,San Diego Padres,0.51557,8.82,0.4787,8.5,-133.0,133.0,0.5708,away,0.0596,1
