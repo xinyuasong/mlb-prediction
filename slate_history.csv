@@ -581,3 +581,4 @@ run_ts,date,away,home,p_home,exp_total,p_over,total_line,home_ml,away_ml,market_
 2026-09-30T17:02:12+00:00,2026-09-30,Chicago White Sox,Houston Astros,0.4768,9.46,0.5312,8.5,-137.0,137.0,0.5781,away,0.0948,1
 2026-09-30T17:02:12+00:00,2026-09-30,Boston Red Sox,New York Yankees,0.57376,6.86,0.298,8.5,-124.0,124.0,0.5536,away,0.0003,0
 2026-09-30T17:02:12+00:00,2026-09-30,Chicago Cubs,San Diego Padres,0.51557,8.82,0.4787,8.5,-133.0,133.0,0.5708,away,0.0596,1
+2026-10-08T15:48:55+00:00,2026-10-08,Cleveland Guardians,Chicago White Sox,0.53895,7.59,0.3685,8.5,106.0,-106.0,0.4854,home,0.0426,1
