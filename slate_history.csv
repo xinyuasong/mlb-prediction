@@ -583,3 +583,4 @@ run_ts,date,away,home,p_home,exp_total,p_over,total_line,home_ml,away_ml,market_
 2026-09-30T17:02:12+00:00,2026-09-30,Chicago Cubs,San Diego Padres,0.51557,8.82,0.4787,8.5,-133.0,133.0,0.5708,away,0.0596,1
 2026-10-08T15:48:55+00:00,2026-10-08,Cleveland Guardians,Chicago White Sox,0.53895,7.59,0.3685,8.5,106.0,-106.0,0.4854,home,0.0426,1
 2026-10-11T14:50:25+00:00,2026-10-11,Los Angeles Dodgers,Milwaukee Brewers,0.535,6.94,0.3007,8.5,-102.0,102.0,0.505,home,0.0202,0
+2026-10-14T14:01:08+00:00,2026-10-14,Milwaukee Brewers,Los Angeles Dodgers,0.58687,8.83,0.4843,8.5,-156.0,156.0,0.6094,away,0.0466,1
