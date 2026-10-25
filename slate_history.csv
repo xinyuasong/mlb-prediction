@@ -585,3 +585,4 @@ run_ts,date,away,home,p_home,exp_total,p_over,total_line,home_ml,away_ml,market_
 2026-10-11T14:50:25+00:00,2026-10-11,Los Angeles Dodgers,Milwaukee Brewers,0.535,6.94,0.3007,8.5,-102.0,102.0,0.505,home,0.0202,0
 2026-10-14T14:01:08+00:00,2026-10-14,Milwaukee Brewers,Los Angeles Dodgers,0.58687,8.83,0.4843,8.5,-156.0,156.0,0.6094,away,0.0466,1
 2026-10-18T16:26:37+00:00,2026-10-18,Tampa Bay Rays,Cleveland Guardians,0.45565,7.42,0.3503,8.5,120.0,-120.0,0.4545,home,0.0135,0
+2026-10-23T14:02:10+00:00,2026-10-23,Tampa Bay Rays,Milwaukee Brewers,0.6453,7.06,0.3126,8.5,-172.0,172.0,0.6324,away,0.0264,0
